@@ -417,7 +417,7 @@ func (ctx *Context) triggerReloadConfig(index int, configMap *v1.ConfigMap) {
 		return
 	}
 
-	confMap := schedulerconf.FlattenConfigMaps(ctx.configMaps)
+	confMap := utils.FlattenConfigMaps(ctx.configMaps)
 
 	conf = ctx.apiProvider.GetAPIs().GetConf()
 	log.Log(log.ShimContext).Info("reloading scheduler configuration")

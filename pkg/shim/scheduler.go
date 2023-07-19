@@ -218,7 +218,7 @@ func (ss *KubernetesShim) registerShimLayer() error {
 		return err
 	}
 
-	confMap := conf.FlattenConfigMaps(configMaps)
+	confMap := utils.FlattenConfigMaps(configMaps)
 	config := utils.GetCoreSchedulerConfigFromConfigMap(confMap)
 	extraConfig := utils.GetExtraConfigFromConfigMap(confMap)
 

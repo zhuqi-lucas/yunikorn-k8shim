@@ -19,6 +19,9 @@
 package utils
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -55,10 +58,56 @@ func Convert2Pod(obj interface{}) (*v1.Pod, error) {
 
 func Convert2ConfigMap(obj interface{}) *v1.ConfigMap {
 	if configmap, ok := obj.(*v1.ConfigMap); ok {
+		// Check if compression is needed
+		if needsCompression(configmap) {
+			// Compress data and update the ConfigMap
+			if compressedData, err := compressData(configmap); err == nil {
+				configmap.Data = map[string]string{
+					"compressed": compressedData,
+				}
+			} else {
+				log.Log(log.ShimUtils).Error("failed to compress ConfigMap data", zap.Error(err))
+			}
+		}
 		return configmap
 	}
+
 	log.Log(log.ShimUtils).Warn("cannot convert to *v1.ConfigMap", zap.Stringer("type", reflect.TypeOf(obj)))
 	return nil
+}
+
+func needsCompression(configmap *v1.ConfigMap) bool {
+	const maxSize = 1024 * 1024 // 1MB
+
+	totalSize := calculateConfigMapSize(configmap)
+	return totalSize > maxSize
+}
+
+func calculateConfigMapSize(configmap *v1.ConfigMap) int {
+	totalSize := 0
+	for _, value := range configmap.Data {
+		totalSize += len(value)
+	}
+	return totalSize
+}
+
+func compressData(configmap *v1.ConfigMap) (string, error) {
+	dataBytes, err := json.Marshal(configmap)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	gzWriter := gzip.NewWriter(&buf)
+	if _, err := gzWriter.Write(dataBytes); err != nil {
+		return "", err
+	}
+	if err := gzWriter.Close(); err != nil {
+		return "", err
+	}
+
+	compressedData := base64.StdEncoding.EncodeToString(buf.Bytes())
+	return compressedData, nil
 }
 
 func Convert2PriorityClass(obj interface{}) *schedulingv1.PriorityClass {

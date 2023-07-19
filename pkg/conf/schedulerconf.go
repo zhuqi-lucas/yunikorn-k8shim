@@ -19,6 +19,9 @@
 package conf
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -459,12 +462,51 @@ func FlattenConfigMaps(configMaps []*v1.ConfigMap) map[string]string {
 	result := make(map[string]string)
 	for _, configMap := range configMaps {
 		if configMap != nil {
-			for k, v := range configMap.Data {
-				result[k] = v
+			if isCompressed(configMap) {
+				uncompressed, err := decompressData(configMap)
+				if err != nil {
+					log.Log(log.ShimUtils).Error("failed to decompress ConfigMap data", zap.Error(err))
+					continue
+				}
+				for k, v := range uncompressed.Data {
+					result[k] = v
+				}
+			} else {
+				for k, v := range configMap.Data {
+					result[k] = v
+				}
 			}
 		}
 	}
 	return result
+}
+
+func isCompressed(configMap *v1.ConfigMap) bool {
+	_, compressed := configMap.Data["compressed"]
+	return compressed
+}
+
+func decompressData(configMap *v1.ConfigMap) (*v1.ConfigMap, error) {
+	compressedData := configMap.Data["compressed"]
+
+	decodedData, err := base64.StdEncoding.DecodeString(compressedData)
+	if err != nil {
+		return nil, err
+	}
+
+	reader, err := gzip.NewReader(bytes.NewBuffer(decodedData))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var uncompressed *v1.ConfigMap
+	err = json.NewDecoder(reader).Decode(uncompressed)
+	if err != nil {
+		return nil, err
+	}
+
+	return uncompressed, nil
 }
 
 func GetBuildInfoMap() map[string]string {

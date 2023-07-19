@@ -42,7 +42,6 @@ import (
 	"github.com/apache/yunikorn-k8shim/pkg/admission/metadata"
 	"github.com/apache/yunikorn-k8shim/pkg/common/constants"
 	"github.com/apache/yunikorn-k8shim/pkg/common/utils"
-	schedulerconf "github.com/apache/yunikorn-k8shim/pkg/conf"
 	"github.com/apache/yunikorn-k8shim/pkg/log"
 )
 
@@ -572,7 +571,7 @@ func (c *AdmissionController) validateConfigMap(namespace string, cm *v1.ConfigM
 		return nil
 	}
 
-	configs := schedulerconf.FlattenConfigMaps(configMaps)
+	configs := utils.FlattenConfigMaps(configMaps)
 	policyGroup := conf.GetPendingPolicyGroup(configs)
 	confKey := fmt.Sprintf("%s.yaml", policyGroup)
 

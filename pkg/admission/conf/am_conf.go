@@ -300,7 +300,7 @@ func (acc *AdmissionControllerConf) updateConfigMaps(configMaps []*v1.ConfigMap,
 	}
 
 	acc.configMaps = configMaps
-	configs := schedulerconf.FlattenConfigMaps(configMaps)
+	configs := utils.FlattenConfigMaps(configMaps)
 
 	// hot refresh
 	acc.enableConfigHotRefresh = parseConfigBool(configs, schedulerconf.CMSvcEnableConfigHotRefresh, schedulerconf.DefaultEnableConfigHotRefresh)
