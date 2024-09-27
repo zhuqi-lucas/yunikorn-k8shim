@@ -60,6 +60,9 @@ func EnsureYuniKornConfigsPresent() {
 			_, err = k.UpdateConfigMap(cm, configmanager.YuniKornTestConfig.YkNamespace)
 			Ω(err).NotTo(HaveOccurred())
 		}
+		cm.Data["log.level"] = "DEBUG"
+		_, err = k.UpdateConfigMap(cm, configmanager.YuniKornTestConfig.YkNamespace)
+		Ω(err).NotTo(HaveOccurred())
 	}
 }
 

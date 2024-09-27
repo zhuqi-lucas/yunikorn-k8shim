@@ -86,6 +86,7 @@ func CreateDefaultConfigMap() *v1.ConfigMap {
 		Data: make(map[string]string),
 	}
 	cm.Data[configmanager.DefaultPolicyGroup] = configs.DefaultSchedulerConfig
+	cm.Data["log.level"] = "DEBUG"
 	return cm
 }
 

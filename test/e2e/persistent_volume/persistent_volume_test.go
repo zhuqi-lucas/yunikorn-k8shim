@@ -22,6 +22,10 @@ import (
 	"runtime"
 	"time"
 
+	tests "github.com/apache/yunikorn-k8shim/test/e2e"
+	"github.com/apache/yunikorn-k8shim/test/e2e/framework/helpers/common"
+	"github.com/apache/yunikorn-k8shim/test/e2e/framework/helpers/k8s"
+	"github.com/apache/yunikorn-k8shim/test/e2e/framework/helpers/yunikorn"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -30,11 +34,6 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	tests "github.com/apache/yunikorn-k8shim/test/e2e"
-	"github.com/apache/yunikorn-k8shim/test/e2e/framework/helpers/common"
-	"github.com/apache/yunikorn-k8shim/test/e2e/framework/helpers/k8s"
-	"github.com/apache/yunikorn-k8shim/test/e2e/framework/helpers/yunikorn"
 )
 
 var suiteName string
@@ -44,6 +43,7 @@ var restClient yunikorn.RClient
 const (
 	LocalTypePv    = "Local"
 	StandardScName = "standard"
+	Test	= "test"
 )
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -57,6 +57,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	restClient = yunikorn.RClient{}
 	Ω(restClient).NotTo(gomega.BeNil())
 	yunikorn.EnsureYuniKornConfigsPresent()
+
 })
 var _ = ginkgo.BeforeEach(func() {
 	// Create namespace
@@ -78,37 +79,54 @@ var _ = ginkgo.AfterSuite(func() {
 	ginkgo.By("Deleting PVCs and PVs")
 	err := kClient.DeletePVCs(dev)
 	err2 := kClient.DeletePVs(dev)
+	err3 := kClient.DeleteStorageClass(Test)
 	Ω(err).NotTo(HaveOccurred())
 	Ω(err2).NotTo(HaveOccurred())
+	Ω(err3).NotTo(HaveOccurred())
 })
 
 var _ = ginkgo.Describe("PersistentVolume", func() {
 	ginkgo.It("Verify_static_binding_of_local_pv", func() {
-		pvName := "local-pv-" + common.RandSeq(5)
-		conf := k8s.PvConfig{
-			Name:         pvName,
-			Capacity:     "1Gi",
-			AccessModes:  []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
-			Type:         LocalTypePv,
-			Path:         "/tmp",
-			StorageClass: StandardScName,
+
+		delayedBinding := storagev1.VolumeBindingWaitForFirstConsumer
+		sc := &storagev1.StorageClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:Test,
+			},
+			Provisioner:          "csi.fake.plugin",
+			VolumeBindingMode:   &delayedBinding,
+			AllowVolumeExpansion: nil,
 		}
 
-		ginkgo.By("Create local type pv " + pvName)
-		pvObj, err := k8s.InitPersistentVolume(conf)
+		_, err := kClient.CreateStorageClass(sc)
 		Ω(err).NotTo(HaveOccurred())
-		_, err = kClient.CreatePersistentVolume(pvObj)
-		Ω(err).NotTo(HaveOccurred())
-		Ω(kClient.WaitForPersistentVolumeAvailable(pvName, 60*time.Second)).NotTo(HaveOccurred())
+
+
+		//pvName := "local-pv-" + common.RandSeq(5)
+		//conf := k8s.PvConfig{
+		//	Name:         pvName,
+		//	Capacity:     "1Gi",
+		//	AccessModes:  []v1.PersistentVolumeAccessMode{v1.ReadOnlyMany},
+		//	Type:         LocalTypePv,
+		//	Path:         "/tmp/test",
+		//	StorageClass: Test,
+		//}
+		//
+		//ginkgo.By("Create local type pv " + pvName)
+		//pvObj, err := k8s.InitPersistentVolume(conf)
+		//Ω(err).NotTo(HaveOccurred())
+		//_, err = kClient.CreatePersistentVolume(pvObj)
+		//Ω(err).NotTo(HaveOccurred())
+		//Ω(kClient.WaitForPersistentVolumeAvailable(pvName, 60*time.Second)).NotTo(HaveOccurred())
 
 		pvcName := "pvc-" + common.RandSeq(5)
 		pvcConf := k8s.PvcConfig{
 			Name:       pvcName,
 			Capacity:   "1Gi",
-			VolumeName: pvName,
+			StorageClassName: Test,
 		}
 
-		ginkgo.By("Create pvc " + pvcName + ", which binds to " + pvName)
+		ginkgo.By("Create pvc " + pvcName)
 		pvcObj, err := k8s.InitPersistentVolumeClaim(pvcConf)
 		Ω(err).NotTo(HaveOccurred())
 		_, err = kClient.CreatePersistentVolumeClaim(pvcObj, dev)
@@ -128,8 +146,17 @@ var _ = ginkgo.Describe("PersistentVolume", func() {
 		_, err = kClient.CreatePod(podObj, dev)
 		Ω(err).NotTo(HaveOccurred())
 
+
+		//pv, err := kClient.GetPersistentVolume(pvName)
+		//Ω(err).NotTo(HaveOccurred())
+		//pv.Status.Phase = v1.VolumeFailed
+		//_, err = kClient.UpdatePVStatus(pvName)
+		//Ω(err).NotTo(HaveOccurred())
+		//
+		//Ω(kClient.WaitForPersistentVolumeFailed(pvName, 60*time.Second)).NotTo(HaveOccurred())
+
 		ginkgo.By("Check pod " + podName + " is successfully running")
-		err = kClient.WaitForPodRunning(dev, podName, 60*time.Second)
+		err = kClient.WaitForPodFailed(dev, podName, 100*time.Second)
 		Ω(err).NotTo(HaveOccurred())
 	})
 

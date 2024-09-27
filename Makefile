@@ -56,6 +56,7 @@ SCHEDULER_BINARY=yunikorn-scheduler
 PLUGIN_BINARY=yunikorn-scheduler-plugin
 ADMISSION_CONTROLLER_BINARY=yunikorn-admission-controller
 TEST_SERVER_BINARY=web-test-server
+TEST_CSI_BINARY=csi-test-server
 
 TOOLS_DIR=tools
 REPO=github.com/apache/yunikorn-k8shim/pkg
@@ -646,6 +647,45 @@ $(RELEASE_BIN_DIR)/$(TEST_SERVER_BINARY): go.mod go.sum $(shell find pkg)
 	-tags netgo \
 	-installsuffix netgo \
 	./pkg/cmd/webtest/
+
+# Build a csi driver server image ONLY to be used in e2e tests
+.PHONY: csi_test_image
+csitest_image: $(OUTPUT)/third-party-licenses.md build_csi_test_image_prod docker/csitest
+	@echo "building csi test server image for automated e2e tests"
+	@rm -rf "$(DOCKER_DIR)/csitest"
+	@mkdir -p "$(DOCKER_DIR)/csitest"
+	@cp -a "docker/csitest/." "$(DOCKER_DIR)/csitest/."
+	@cp "$(RELEASE_BIN_DIR)/$(TEST_CSI_BINARY)" "$(DOCKER_DIR)/csitest/."
+	@cp -a LICENSE NOTICE "$(OUTPUT)/third-party-licenses.md" "$(DOCKER_DIR)/csitest/."
+	DOCKER_BUILDKIT=1 docker build \
+	"$(DOCKER_DIR)/csitest" \
+	-t "${REGISTRY}/yunikorn:csitest-${DOCKER_ARCH}-${VERSION}" \
+	--label "yunikorn-e2e-csi-test-image" \
+	${QUIET}
+
+.PHONY: build_csi_test_server_dev
+build_csi_test_server_dev: $(DEV_BIN_DIR)/$(TEST_CSI_BINARY)
+
+$(DEV_BIN_DIR)/$(TEST_CSI_BINARY): go.mod go.sum $(shell find pkg)
+	@echo "building local csi test server binary"
+	"$(GO)" build \
+	-o="$(DEV_BIN_DIR)/$(TEST_CSI_BINARY)" \
+	-race \
+	-ldflags '-buildid= -X main.version=${VERSION} -X main.date=${DATE} -X main.goVersion=${GO_VERSION} -X main.arch=${EXEC_ARCH}' \
+	./pkg/cmd/csitest/
+
+.PHONY: build_csi_test_image_prod
+build_csi_test_image_prod: $(RELEASE_BIN_DIR)/$(TEST_CSI_BINARY)
+
+$(RELEASE_BIN_DIR)/$(TEST_CSI_BINARY): go.mod go.sum $(shell find pkg)
+	@echo "building csi test server binary"
+	CGO_ENABLED=0 GOOS=linux GOARCH="${EXEC_ARCH}" "$(GO)" build \
+	-a \
+	-o="$(RELEASE_BIN_DIR)/$(TEST_CSI_BINARY)" \
+	-ldflags '-buildid= -extldflags "-static" -X main.version=${VERSION} -X main.date=${DATE} -X main.goVersion=${GO_VERSION} -X main.arch=${EXEC_ARCH}' \
+	-tags netgo \
+	-installsuffix netgo \
+	./pkg/cmd/csitest/
 
 # Run the tests after building
 .PHONY: test

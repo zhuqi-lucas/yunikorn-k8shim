@@ -90,13 +90,17 @@ type ScConfig struct {
 }
 
 func InitStorageClass(conf ScConfig) (*storagev1.StorageClass, error) {
+	delayedBinding := storagev1.VolumeBindingWaitForFirstConsumer
 	sc := &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: conf.Name,
 		},
 		Provisioner: conf.Provisioner,
 		Parameters:  conf.Parameters,
+		VolumeBindingMode:   &delayedBinding,
+		AllowVolumeExpansion: nil,
 	}
+
 	return sc, nil
 }
 

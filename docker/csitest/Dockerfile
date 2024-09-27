@@ -15,10 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# 使用一个临时基础镜像来设置权限
 # Imagestage: use scratch base image
 FROM scratch
-COPY --chown=0:0 LICENSE NOTICE third-party-licenses.md web-test-server /
-EXPOSE 9889
-ENV DOCUMENT_ROOT /html
+COPY --chown=0:0 LICENSE NOTICE third-party-licenses.md csi-test-server /
+EXPOSE 9890
 USER 4444:4444
-ENTRYPOINT [ "/web-test-server" ]
+ENTRYPOINT [ "/csi-test-server" ]
+
+

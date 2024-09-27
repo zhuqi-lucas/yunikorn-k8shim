@@ -62,6 +62,7 @@ import (
 	"github.com/apache/yunikorn-k8shim/pkg/log"
 	"github.com/apache/yunikorn-k8shim/test/e2e/framework/configmanager"
 	"github.com/apache/yunikorn-k8shim/test/e2e/framework/helpers/common"
+	 errs"k8s.io/apimachinery/pkg/api/errors"
 )
 
 const portForwardPort = 9080
@@ -221,6 +222,43 @@ func (k *KubeCtl) UpdatePodWithAnnotation(pod *v1.Pod, namespace, annotationKey,
 func (k *KubeCtl) UpdatePod(pod *v1.Pod, namespace string) (*v1.Pod, error) {
 	return k.clientSet.CoreV1().Pods(namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
 }
+
+// UpdatePVStatus updates the status of a PersistentVolume with retries in case of conflicts.
+func (k *KubeCtl) UpdatePVStatus(pvName string) (*v1.PersistentVolume, error) {
+	var (
+		err    error
+		latest *v1.PersistentVolume
+	)
+
+	for retries := 0; retries < 5; retries++ {
+		// Fetch the latest version of the PV
+		latest, err = k.clientSet.CoreV1().PersistentVolumes().Get(context.TODO(), pvName, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+
+		// Update the status of the PV
+		latest.Status.Phase = v1.VolumeFailed
+
+		// Attempt to update the PV status
+		latest, err = k.clientSet.CoreV1().PersistentVolumes().UpdateStatus(context.TODO(), latest, metav1.UpdateOptions{})
+		if err == nil {
+			return latest, nil // Update succeeded
+		}
+
+		// Check if the error is a conflict error
+		if errs.IsConflict(err) {
+			fmt.Printf("Conflict detected while updating PV status, retrying... (attempt %d)\n", retries+1)
+			time.Sleep(1 * time.Second) // Exponential backoff could be added here
+		} else {
+			return nil, err // Non-conflict error
+		}
+	}
+
+	return nil, fmt.Errorf("failed to update PV status after multiple retries")
+}
+
+
 
 func (k *KubeCtl) DeletePodAnnotation(pod *v1.Pod, namespace, annotation string) (*v1.Pod, error) {
 	annotations := pod.Annotations
@@ -1669,6 +1707,12 @@ func (k *KubeCtl) WaitForPersistentVolumeAvailable(name string, timeout time.Dur
 	return wait.PollUntilContextTimeout(context.TODO(), time.Millisecond*200, timeout, true, k.isPersistentVolumeAvailable(name))
 }
 
+// wait for pv fail
+func (k *KubeCtl) WaitForPersistentVolumeFailed(name string, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(context.TODO(), time.Millisecond*200, timeout, true, k.isPersistentVolumeFailed(name))
+}
+
+
 func (k *KubeCtl) WaitForPersistentVolumeClaimPresent(namespace string, name string, timeout time.Duration) error {
 	return wait.PollUntilContextTimeout(context.TODO(), time.Millisecond*200, timeout, true, k.isPersistentVolumeClaimPresent(namespace, name))
 }
@@ -1680,6 +1724,20 @@ func (k *KubeCtl) isPersistentVolumeAvailable(name string) wait.ConditionWithCon
 			return false, err
 		}
 		if pv.Status.Phase == v1.VolumeAvailable {
+			return true, nil
+		}
+		return false, nil
+	}
+}
+
+// is pv fail
+func (k *KubeCtl) isPersistentVolumeFailed(name string) wait.ConditionWithContextFunc {
+	return func(context.Context) (bool, error) {
+		pv, err := k.GetPersistentVolume(name)
+		if err != nil {
+			return false, err
+		}
+		if pv.Status.Phase == v1.VolumeFailed {
 			return true, nil
 		}
 		return false, nil

@@ -134,6 +134,8 @@ function install_cluster() {
   exit_on_error "build docker images failed"
   QUIET="--quiet" REGISTRY=local VERSION=latest make webtest_image
   exit_on_error "build test web images failed"
+  QUIET="--quiet" REGISTRY=local VERSION=latest make csitest_image
+  exit_on_error "build test csi images failed"
 
   # create K8s cluster
   echo "step 4/6: installing K8s cluster using kind"
@@ -154,6 +156,8 @@ function install_cluster() {
   exit_on_error "pre-load admission controller image failed: ${ADMISSION_IMAGE}"
   "${KIND}" load docker-image "local/yunikorn:${WEBTEST_IMAGE}" --name "${CLUSTER_NAME}"
   exit_on_error "pre-load web image failed: ${WEBTEST_IMAGE}"
+  "${KIND}" load docker-image "local/yunikorn:${CSITEST_IMAGE}" --name "${CLUSTER_NAME}"
+  exit_on_error "pre-load csi image failed: ${CSITEST_IMAGE}"
 
   echo "step 6/6: installing yunikorn"
   "${HELM}" install yunikorn "${CHART_PATH}" --namespace yunikorn \
@@ -217,6 +221,7 @@ GIT_CLONE=true
 SCHEDULER_IMAGE="scheduler-${DOCKER_ARCH}-latest"
 ADMISSION_IMAGE="admission-${DOCKER_ARCH}-latest"
 WEBTEST_IMAGE="webtest-${DOCKER_ARCH}-latest"
+CSITEST_IMAGE="csitest-${DOCKER_ARCH}-latest"
 
 while [[ $# -gt 0 ]]; do
 key="$1"
@@ -273,6 +278,7 @@ echo "  docker arch        : ${DOCKER_ARCH}"
 echo "  scheduler image    : ${SCHEDULER_IMAGE}"
 echo "  admission image    : ${ADMISSION_IMAGE}"
 echo "  web image          : ${WEBTEST_IMAGE}"
+echo "  csi test image"    : ${CSITEST_IMAGE}
 check_opt "action" "${ACTION}"
 check_opt "kind-cluster-name" "${CLUSTER_NAME}"
 

@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/apache/yunikorn-k8shim/pkg/common/utils"
 	"github.com/looplab/fsm"
 	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
@@ -684,6 +685,9 @@ func (app *Application) removeCompletedTasks() {
 	for _, task := range app.taskMap {
 		if task.isTerminated() {
 			app.removeTask(task.taskID)
+			if task.GetTaskState() == TaskStates().Failed && !utils.IsPodTerminated(task.GetTaskPod()){
+				task.GetTaskPod().Status.Phase = v1.PodFailed
+			}
 		}
 	}
 }
