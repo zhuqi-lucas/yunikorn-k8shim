@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -17,6 +18,18 @@ import (
 type FakeCSIPlugin struct {
 	csi.UnimplementedControllerServer
 	csi.UnimplementedIdentityServer // Add this to implement identity methods
+
+	mu          sync.Mutex // Protects retryCount
+	retryCount  int        // Tracks the number of retries
+	maxRetries  int        // Max retries before succeeding
+}
+
+// NewFakeCSIPlugin creates a new instance of the FakeCSIPlugin with a retry limit.
+func NewFakeCSIPlugin(maxRetries int) *FakeCSIPlugin {
+	return &FakeCSIPlugin{
+		retryCount:  0,
+		maxRetries:  maxRetries,
+	}
 }
 
 func main() {
@@ -29,8 +42,9 @@ func main() {
 	}
 
 	server := grpc.NewServer()
-	csi.RegisterControllerServer(server, &FakeCSIPlugin{})
-	csi.RegisterIdentityServer(server, &FakeCSIPlugin{}) // Register the Identity Server
+	fakeCSIPlugin := NewFakeCSIPlugin(3) // Fail 3 times, then succeed
+	csi.RegisterControllerServer(server, fakeCSIPlugin)
+	csi.RegisterIdentityServer(server, fakeCSIPlugin) // Register the Identity Server
 
 	log.Default().Printf("Fake CSI Plugin is running on port 9890...")
 	if err := server.Serve(listener); err != nil {
@@ -67,7 +81,30 @@ func (p *FakeCSIPlugin) CreateVolume(ctx context.Context, req *csi.CreateVolumeR
 	}, nil
 }
 
+// ControllerPublishVolume simulates binding with retries and eventual success
 func (p *FakeCSIPlugin) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
-	// Simulate a binding error.
-	return nil, fmt.Errorf("simulated bind failure: unable to bind volume to node")
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Simulate retry with failure for the first few attempts
+	if p.retryCount < p.maxRetries {
+		log.Default().Printf("simulated bind failure on attempt %d: unable to bind volume to node", p.retryCount+1)
+		p.retryCount++
+		return nil, fmt.Errorf("simulated bind failure: unable to bind volume to node")
+	}
+
+	// After maxRetries, return success
+	log.Default().Printf("bind successful after %d retries", p.retryCount)
+	return &csi.ControllerPublishVolumeResponse{
+		PublishContext: map[string]string{
+			"bindSuccess": "true",
+		},
+	}, nil
+}
+
+func (p *FakeCSIPlugin) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+	// Simulate successful volume publish (mounting)
+	log.Default().Printf("Simulating NodePublishVolume success for volume %s on target path %s", req.VolumeId, req.TargetPath)
+
+	return &csi.NodePublishVolumeResponse{}, nil
 }
