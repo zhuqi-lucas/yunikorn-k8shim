@@ -156,7 +156,7 @@ var _ = ginkgo.Describe("PersistentVolume", func() {
 		//Ω(kClient.WaitForPersistentVolumeFailed(pvName, 60*time.Second)).NotTo(HaveOccurred())
 
 		ginkgo.By("Check pod " + podName + " is successfully running")
-		err = kClient.WaitForPodFailed(dev, podName, 100*time.Second)
+		err = kClient.WaitForPodRunning(dev, podName, 100*time.Second)
 		Ω(err).NotTo(HaveOccurred())
 	})
 
