@@ -787,9 +787,11 @@ func TestUpdatePod(t *testing.T) {
 	cache.AssumePod(pod1, true)
 	assert.Check(t, cache.isAssumedPod(podUID1), "pod is not assumed")
 	pod1Copy = pod1.DeepCopy()
-	pod1Copy.Spec.NodeName = node2.Name
+	pod1Copy.Spec.NodeName = ""
 	cache.UpdatePod(pod1Copy)
-	assert.Check(t, cache.isAssumedPod(podUID1), "pod is not assumed after re-add")
+	pod = cache.GetPod(podUID1)
+	assert.Check(t, !cache.isAssumedPod(podUID1), "pod is not assumed after re-add")
+	assert.Equal(t, pod.Spec.NodeName, "", "node name not updated")
 
 	// unassumed pod should survive node changing without crashing
 	pod3 := podTemplate.DeepCopy()

@@ -503,9 +503,15 @@ func (cache *SchedulerCache) updatePod(pod *v1.Pod) bool {
 					cache.nodesInfoPodsWithReqAntiAffinity = nil
 				}
 			}
+			_, ok = cache.assumedPods[key]
 			if pod.Spec.NodeName == "" {
-				// new pod wasn't assigned to a node, so use existing assignment
-				pod.Spec.NodeName = nodeName
+				if ok {
+					// Pod was assumed but now has no node assignment, so it is no longer assumed
+					delete(cache.assumedPods, key)
+				} else {
+					// New pod wasn't assigned to a node, so use the existing assignment
+					pod.Spec.NodeName = nodeName
+				}
 			}
 		}
 		delete(cache.assignedPods, key)
