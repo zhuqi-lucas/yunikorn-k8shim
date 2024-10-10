@@ -49,6 +49,8 @@ type Task struct {
 	createTime    time.Time
 	placeholder   bool
 	originator    bool
+	retryCount    int32
+	deallocating  bool
 	sm            *fsm.FSM
 
 	// mutable resources, require locking
@@ -104,6 +106,8 @@ func createTaskInternal(tid string, app *Application, resource *si.Resource,
 		context:         ctx,
 		sm:              newTaskState(),
 		schedulingState: TaskSchedPending,
+		retryCount: 0,
+		deallocating: false,
 		lock:            &locking.RWMutex{},
 	}
 	if tgName := utils.GetTaskGroupFromPodSpec(pod); tgName != "" {
@@ -325,7 +329,9 @@ func (task *Task) updateAllocation() {
 		task.taskGroupName,
 		task.pod,
 		task.originator,
-		preemptionPolicy)
+		preemptionPolicy,
+		task.retryCount,
+		task.deallocating,)
 	log.Log(log.ShimCacheTask).Debug("send update request", zap.Stringer("request", rr))
 	if err := task.context.apiProvider.GetAPIs().SchedulerAPI.UpdateAllocation(rr); err != nil {
 		log.Log(log.ShimCacheTask).Debug("failed to send allocation to scheduler", zap.Error(err))
@@ -376,7 +382,11 @@ func (task *Task) postTaskAllocated() {
 				zap.String("podUID", string(task.pod.UID)))
 			if err := task.context.bindPodVolumes(task.pod); err != nil {
 				log.Log(log.ShimCacheTask).Error("bind volumes to pod failed", zap.String("taskID", task.taskID), zap.Error(err))
-				task.failWithEvent(fmt.Sprintf("bind volumes to pod failed, name: %s, %s", task.alias, err.Error()), "PodVolumesBindFailure")
+				if task.retryCount >= 3 {
+					task.failWithEvent(fmt.Sprintf("bind volumes to pod failed, and exceed the max retry count, name: %s, %s", task.alias, err.Error()), "PodVolumesBindFailure")
+				} else {
+					task.retryAllocateWithEvent(fmt.Sprintf("bind volumes to pod failed, name: %s, %s", task.alias, err.Error()), "PodVolumesBindFailure")
+				}
 				return
 			}
 
@@ -386,7 +396,11 @@ func (task *Task) postTaskAllocated() {
 
 			if err := task.context.apiProvider.GetAPIs().KubeClient.Bind(task.pod, task.nodeName); err != nil {
 				log.Log(log.ShimCacheTask).Error("bind pod to node failed", zap.String("taskID", task.taskID), zap.Error(err))
-				task.failWithEvent(fmt.Sprintf("bind pod to node failed, name: %s, %s", task.alias, err.Error()), "PodBindFailure")
+				if task.retryCount >= 3 {
+					task.failWithEvent(fmt.Sprintf("bind pod to node failed, and exceed the max retry count, name: %s, %s", task.alias, err.Error()), "PodBindFailure
+				} else {
+					task.retryAllocateWithEvent(fmt.Sprintf("bind pod to node failed, name: %s, %s", task.alias, err.Error()), "PodBindFailure")
+				}
 				return
 			}
 
@@ -422,6 +436,39 @@ func (task *Task) beforeTaskAllocated(eventSrc string, allocationKey string, nod
 			zap.String("allocatedNode", nodeID))
 		task.releaseAllocation()
 	}
+}
+
+func (task *Task) beforeTaskDeallocateRetry(eventSrc string, allocationKey string, nodeID string) {
+	if eventSrc == TaskStates().Scheduling {
+		log.Log(log.ShimCacheTask).Info("task is already in scheduling state",
+			zap.String("currentTaskState", eventSrc),
+			zap.String("allocationKey", allocationKey),
+			zap.String("allocatedNode", nodeID))
+
+		return
+	}
+
+	err := task.context.RevertAssumePod(task.allocationKey)
+	if err != nil {
+		log.Log(log.ShimCacheTask).Error("failed to revert assume pod",
+			zap.String("appID", task.applicationID),
+			zap.String("taskID", task.taskID),
+			zap.String("allocationKey", task.allocationKey),
+			zap.String("nodeName", task.nodeName),
+			zap.Error(err))
+
+		return
+	}
+
+	// revert the allocation
+	task.allocationKey = ""
+	task.nodeName = ""
+	task.pod.Spec.NodeName = ""
+	task.schedulingState = TaskSchedPending
+	task.deallocating = true
+	task.retryCount = task.retryCount + 1
+	// send an update allocation request to the core
+	task.updateAllocation()
 }
 
 func (task *Task) postTaskBound() {
@@ -634,6 +681,12 @@ func (task *Task) FailWithEvent(errorMessage, actionReason string) {
 
 func (task *Task) failWithEvent(errorMessage, actionReason string) {
 	dispatcher.Dispatch(NewFailTaskEvent(task.applicationID, task.taskID, errorMessage))
+	events.GetRecorder().Eventf(task.pod.DeepCopy(),
+		nil, v1.EventTypeWarning, actionReason, actionReason, errorMessage)
+}
+
+func(task *Task) retryAllocateWithEvent(errorMessage, actionReason string) {
+	dispatcher.Dispatch(NewRetryTaskEvent(task.applicationID, task.taskID, errorMessage))
 	events.GetRecorder().Eventf(task.pod.DeepCopy(),
 		nil, v1.EventTypeWarning, actionReason, actionReason, errorMessage)
 }

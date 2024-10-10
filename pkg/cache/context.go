@@ -830,6 +830,28 @@ func (ctx *Context) AssumePod(name, node string) error {
 	return nil
 }
 
+func (ctx *Context) RevertAssumePod(name string) error {
+	if pod := ctx.schedulerCache.GetPod(name); pod != nil {
+		// when revert assumed pod, we make a copy of the pod to avoid
+		// modifying its original reference. otherwise
+		assumedPod := pod.DeepCopy()
+
+		log.Log(log.ShimContext).Debug("revert assumed pod", zap.String("pod", assumedPod.Name))
+		assumedPod.Spec.NodeName = ""
+
+		// Update node name to "" will remove the pod from the assumed list
+		// and remove the pod from assigned list if it is not bound
+		// to the node.
+		if ctx.schedulerCache.UpdatePod(assumedPod) {
+			return nil
+		} else {
+			return fmt.Errorf("failed to revert assumed pod %s", name)
+		}
+	}
+	return fmt.Errorf("pod %s not found", name)
+}
+
+
 // forget pod must be called when a pod is assumed to be running on a node,
 // but then for some reason it is failed to bind or released.
 func (ctx *Context) ForgetPod(name string) {
@@ -1686,7 +1708,7 @@ func (ctx *Context) finalizePods(existingPods []*v1.Pod) error {
 }
 
 // for a given pod, return an allocation if found
-func getExistingAllocation(pod *v1.Pod) *si.Allocation {
+func GetExistingAllocation(pod *v1.Pod) *si.Allocation {
 	// skip terminated pods
 	if utils.IsPodTerminated(pod) {
 		return nil

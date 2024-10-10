@@ -45,6 +45,7 @@ const (
 	TaskBound
 	CompleteTask
 	TaskFail
+	TaskRetry
 	KillTask
 	TaskKilled
 )
@@ -230,6 +231,43 @@ func (fe FailTaskEvent) GetApplicationID() string {
 }
 
 // ------------------------
+// Retry Event
+// ------------------------
+type RetryTaskEvent struct {
+	applicationID string
+	taskID        string
+	event         TaskEventType
+	message 	 string
+}
+
+func NewRetryTaskEvent(appID string, taskID string, retryMessage string) RetryTaskEvent {
+	return RetryTaskEvent{
+		applicationID: appID,
+		taskID:        taskID,
+		event:         TaskRetry,
+		message:       retryMessage,
+	}
+}
+
+func (re RetryTaskEvent) GetEvent() string {
+	return re.event.String()
+}
+
+func (re RetryTaskEvent) GetArgs() []interface{} {
+	args := make([]interface{}, 1)
+	args[0] = re.message
+	return args
+}
+
+func (re RetryTaskEvent) GetTaskID() string {
+	return re.taskID
+}
+
+func (re RetryTaskEvent) GetApplicationID() string {
+	return re.applicationID
+}
+
+// ------------------------
 // Reject Event
 // ------------------------
 type RejectTaskEvent struct {
@@ -342,6 +380,11 @@ func eventDesc(states *TStates) fsm.Events {
 			Dst:  states.Completed,
 		},
 		{
+			Name: TaskRetry.String(),
+			Src:  []string{states.Allocated},
+			Dst:  states.Scheduling,
+		},
+		{
 			Name: TaskBound.String(),
 			Src:  []string{states.Allocated},
 			Dst:  states.Bound,
@@ -428,6 +471,18 @@ func callbacks(states *TStates) fsm.Callbacks {
 			allocationKey := eventArgs[0]
 			nodeID := eventArgs[1]
 			task.beforeTaskAllocated(event.Src, allocationKey, nodeID)
+		},
+		beforeHook(TaskRetry): func(ctx context.Context, event *fsm.Event) {
+			task := event.Args[0].(*Task) //nolint:errcheck
+			eventArgs := make([]string, 2)
+			if err := events.GetEventArgsAsStrings(eventArgs, event.Args[1].([]interface{})); err != nil {
+				log.Log(log.ShimFSM).Error("failed to parse event arg", zap.Error(err))
+				return
+			}
+			allocationKey := eventArgs[0]
+			nodeID := eventArgs[1]
+			// Now only support retry for deallocating
+			task.beforeTaskDeallocateRetry(event.Src, allocationKey, nodeID)
 		},
 		beforeHook(CompleteTask): func(_ context.Context, event *fsm.Event) {
 			task := event.Args[0].(*Task) //nolint:errcheck

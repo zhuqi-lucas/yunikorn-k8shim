@@ -1906,7 +1906,7 @@ func TestGetExistingAllocation(t *testing.T) {
 	}
 
 	// verifies the existing allocation is correctly returned
-	alloc := getExistingAllocation(pod)
+	alloc := GetExistingAllocation(pod)
 	assert.Equal(t, alloc.ApplicationID, appID1)
 	assert.Equal(t, alloc.AllocationKey, string(pod.UID))
 	assert.Equal(t, alloc.NodeID, "allocated-node")
