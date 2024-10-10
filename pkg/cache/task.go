@@ -461,7 +461,6 @@ func (task *Task) beforeTaskDeallocateRetry(eventSrc string, allocationKey strin
 	}
 
 	// revert the allocation
-	task.allocationKey = ""
 	task.nodeName = ""
 	task.pod.Spec.NodeName = ""
 	task.schedulingState = TaskSchedPending
